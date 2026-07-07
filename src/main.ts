@@ -1,4 +1,5 @@
 import {
+  Menu,
   Notice,
   Plugin,
   PluginSettingTab,
@@ -7,6 +8,7 @@ import {
   TFolder,
   View,
   normalizePath,
+  setIcon,
 } from "obsidian";
 import {
   PDFArray,
@@ -318,88 +320,30 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     if (bar) return bar;
     bar = doc.createElement("div");
     bar.className = "pdf-highlight-notes-toolbar";
-    this.renderToolbar(bar, doc, "main");
-    doc.body.appendChild(bar);
-    this.selectionButtons.set(doc, bar);
-    return bar;
-  }
-
-  // The toolbar has a main row (actions) and two swatch rows (pick a color,
-  // paint with it, and remember it as the new default).
-  private renderToolbar(
-    bar: HTMLDivElement,
-    doc: Document,
-    mode: "main" | "highlight-colors" | "underline-colors"
-  ) {
-    bar.empty();
 
     // pointerdown (not click) + preventDefault, so the PDF selection is still
-    // alive when we read it.
-    const onPress = (el: HTMLElement, action: () => void) => {
-      el.addEventListener("pointerdown", (evt) => {
-        evt.preventDefault();
-        evt.stopPropagation();
-        action();
-      });
-    };
-
-    const addButton = (label: string, action: () => void) => {
+    // alive when we read it. One click, current default colors — changing
+    // colors happens in the PDF top toolbar.
+    const addButton = (label: string, action: () => Promise<void>) => {
       const btn = doc.createElement("button");
       btn.className = "pdf-highlight-notes-btn";
       btn.setText(label);
-      onPress(btn, action);
-      bar.appendChild(btn);
+      btn.addEventListener("pointerdown", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        void action().then(() => this.hideSelectionButton(doc));
+      });
+      bar?.appendChild(btn);
     };
 
-    if (mode === "main") {
-      addButton("Highlight", () =>
-        this.renderToolbar(bar, doc, "highlight-colors")
-      );
-      addButton("Underline", () =>
-        this.renderToolbar(bar, doc, "underline-colors")
-      );
-      addButton("Quote", () =>
-        void this.saveQuote().then(() => this.hideSelectionButton(doc))
-      );
-      addButton("Erase", () =>
-        void this.eraseUnderSelection().then(() =>
-          this.hideSelectionButton(doc)
-        )
-      );
-      return;
-    }
+    addButton("Highlight", () => this.highlightSelection("highlight"));
+    addButton("Underline", () => this.highlightSelection("underline"));
+    addButton("Quote", () => this.saveQuote());
+    addButton("Erase", () => this.eraseUnderSelection());
 
-    // Swatch row for picking the color to paint with.
-    const style: MarkerStyle = mode === "highlight-colors" ? "highlight" : "underline";
-    const palette: Record<string, readonly number[]> =
-      style === "highlight" ? HIGHLIGHT_COLORS : UNDERLINE_COLORS;
-    const current =
-      style === "highlight"
-        ? this.settings.highlightColor
-        : this.settings.underlineColor;
-
-    addButton("‹", () => this.renderToolbar(bar, doc, "main"));
-
-    for (const [name, rgb] of Object.entries(palette)) {
-      const swatch = doc.createElement("button");
-      swatch.className = "pdf-highlight-notes-swatch";
-      if (name === current) swatch.addClass("is-active");
-      swatch.setAttribute("aria-label", name);
-      swatch.style.backgroundColor = `rgb(${Math.round(rgb[0] * 255)}, ${Math.round(rgb[1] * 255)}, ${Math.round(rgb[2] * 255)})`;
-      onPress(swatch, () => {
-        // Remember the choice as the new default, then paint.
-        if (style === "highlight") {
-          this.settings.highlightColor = name as keyof typeof HIGHLIGHT_COLORS;
-        } else {
-          this.settings.underlineColor = name as keyof typeof UNDERLINE_COLORS;
-        }
-        void this.saveSettings();
-        void this.highlightSelection(style).then(() =>
-          this.hideSelectionButton(doc)
-        );
-      });
-      bar.appendChild(swatch);
-    }
+    doc.body.appendChild(bar);
+    this.selectionButtons.set(doc, bar);
+    return bar;
   }
 
   private hideSelectionButton(doc: Document) {
@@ -425,8 +369,6 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       return;
     }
     const btn = this.getSelectionButton(doc);
-    // Fresh selection → start from the main action row, not a swatch row.
-    if (!btn.hasClass("is-visible")) this.renderToolbar(btn, doc, "main");
     btn.addClass("is-visible");
     const margin = 8;
     const top = Math.max(margin, rect.top - 34);
@@ -566,7 +508,100 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       const view = leaf.view as PdfViewLike;
       this.observeView(view);
       this.renderOverlaysForView(view);
+      this.injectPdfToolbar(view);
     }
+  }
+
+  // ---- Controls in the PDF viewer's top toolbar -----------------------------
+
+  private rgbCss(rgb: readonly number[]): string {
+    return `rgb(${Math.round(rgb[0] * 255)}, ${Math.round(rgb[1] * 255)}, ${Math.round(rgb[2] * 255)})`;
+  }
+
+  private injectPdfToolbar(view: PdfViewLike) {
+    const toolbar = view.containerEl.querySelector<HTMLElement>(".pdf-toolbar");
+    if (!toolbar || toolbar.querySelector(".pdf-highlight-notes-controls"))
+      return;
+
+    const wrap = toolbar.createDiv({ cls: "pdf-highlight-notes-controls" });
+
+    // pointerdown + preventDefault so the text selection in the PDF is still
+    // alive when the action runs.
+    const press = (el: HTMLElement, fn: (evt: PointerEvent) => void) => {
+      el.addEventListener("pointerdown", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        fn(evt);
+      });
+    };
+
+    const iconButton = (icon: string, label: string, fn: () => void) => {
+      const b = wrap.createEl("button", {
+        cls: "pdf-highlight-notes-tbtn clickable-icon",
+        attr: { "aria-label": label },
+      });
+      setIcon(b, icon);
+      press(b, fn);
+      return b;
+    };
+
+    const colorDot = (
+      label: string,
+      palette: Record<string, readonly number[]>,
+      get: () => string,
+      set: (name: string) => void
+    ) => {
+      const dot = wrap.createEl("button", {
+        cls: "pdf-highlight-notes-dot",
+        attr: { "aria-label": label },
+      });
+      const refresh = () =>
+        (dot.style.backgroundColor = this.rgbCss(
+          palette[get()] ?? HIGHLIGHT_COLORS.yellow
+        ));
+      refresh();
+      press(dot, (evt) => {
+        const menu = new Menu();
+        for (const name of Object.keys(palette)) {
+          menu.addItem((item) =>
+            item
+              .setTitle(name)
+              .setChecked(name === get())
+              .onClick(() => {
+                set(name);
+                void this.saveSettings();
+                refresh();
+              })
+          );
+        }
+        menu.showAtMouseEvent(evt as unknown as MouseEvent);
+      });
+    };
+
+    iconButton("highlighter", "Highlight selection", () =>
+      void this.highlightSelection("highlight")
+    );
+    colorDot(
+      "Highlight color",
+      HIGHLIGHT_COLORS,
+      () => this.settings.highlightColor,
+      (n) => (this.settings.highlightColor = n as keyof typeof HIGHLIGHT_COLORS)
+    );
+    iconButton("underline", "Underline selection", () =>
+      void this.highlightSelection("underline")
+    );
+    colorDot(
+      "Underline color",
+      UNDERLINE_COLORS,
+      () => this.settings.underlineColor,
+      (n) => (this.settings.underlineColor = n as keyof typeof UNDERLINE_COLORS)
+    );
+    iconButton("eraser", "Erase marker under selection", () =>
+      void this.eraseUnderSelection()
+    );
+    iconButton("text-quote", "Save selection to highlights note", () =>
+      void this.saveQuote()
+    );
   }
 
   // Redraw overlays when pdf.js re-renders pages (zoom, scroll, reload).
