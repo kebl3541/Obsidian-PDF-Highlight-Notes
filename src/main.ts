@@ -26,6 +26,8 @@ interface PdfHighlightSettings {
   openNoteAfterHighlight: boolean;
   // Marker color painted into the PDF file.
   highlightColor: keyof typeof HIGHLIGHT_COLORS;
+  // Underline color (independent from the marker fill).
+  underlineColor: keyof typeof UNDERLINE_COLORS;
 }
 
 // RGB in PDF color space (0..1), tuned to look like real marker ink.
@@ -42,11 +44,19 @@ const HIGHLIGHT_COLORS = {
 
 type MarkerStyle = "highlight" | "underline";
 
+// Underlines get a black option (and default) — a black marker fill would
+// black out the text, so black is only offered for underlines.
+const UNDERLINE_COLORS = {
+  black: [0, 0, 0],
+  ...HIGHLIGHT_COLORS,
+} as const;
+
 const DEFAULT_SETTINGS: PdfHighlightSettings = {
   pdfFolder: "PDFs",
   highlightsFolder: "PDF Highlights",
   openNoteAfterHighlight: false,
   highlightColor: "yellow",
+  underlineColor: "black",
 };
 
 // Everything both actions need to know about the current PDF selection.
@@ -563,7 +573,10 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       Math.max(...ys),
     ];
 
-    const [cr, cg, cb] = HIGHLIGHT_COLORS[this.settings.highlightColor];
+    const [cr, cg, cb] =
+      style === "underline"
+        ? UNDERLINE_COLORS[this.settings.underlineColor]
+        : HIGHLIGHT_COLORS[this.settings.highlightColor];
 
     // Appearance stream. Highlight: filled rectangles with Multiply blending,
     // so text stays readable under the ink. Underline: a stroked line along
@@ -759,11 +772,22 @@ class PdfHighlightSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Highlight color")
-      .setDesc("Marker color painted into the PDF.")
+      .setDesc("Marker fill color painted into the PDF.")
       .addDropdown((dd) => {
         for (const name of Object.keys(HIGHLIGHT_COLORS)) dd.addOption(name, name);
         dd.setValue(this.plugin.settings.highlightColor).onChange(async (v) => {
           this.plugin.settings.highlightColor = v as keyof typeof HIGHLIGHT_COLORS;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Underline color")
+      .setDesc("Color of underlines painted into the PDF.")
+      .addDropdown((dd) => {
+        for (const name of Object.keys(UNDERLINE_COLORS)) dd.addOption(name, name);
+        dd.setValue(this.plugin.settings.underlineColor).onChange(async (v) => {
+          this.plugin.settings.underlineColor = v as keyof typeof UNDERLINE_COLORS;
           await this.plugin.saveSettings();
         });
       });

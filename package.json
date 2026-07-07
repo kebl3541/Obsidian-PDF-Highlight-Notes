@@ -1,6 +1,6 @@
 {
   "name": "pdf-highlight-notes",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Import PDFs into your Obsidian vault and save selections as highlight notes with deep links.",
   "main": "main.js",
   "scripts": {
