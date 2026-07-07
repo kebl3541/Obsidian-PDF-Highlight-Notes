@@ -8,7 +8,14 @@ import {
   View,
   normalizePath,
 } from "obsidian";
-import { PDFArray, PDFDocument, PDFName, PDFString } from "pdf-lib";
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFNumber,
+  PDFString,
+} from "pdf-lib";
 
 interface PdfHighlightSettings {
   // Folder where imported PDFs are stored.
@@ -24,10 +31,16 @@ interface PdfHighlightSettings {
 // RGB in PDF color space (0..1), tuned to look like real marker ink.
 const HIGHLIGHT_COLORS = {
   yellow: [1, 0.82, 0.16],
-  green: [0.47, 0.9, 0.42],
+  orange: [1, 0.62, 0.2],
+  red: [1, 0.42, 0.38],
   pink: [1, 0.53, 0.72],
+  purple: [0.72, 0.53, 1],
   blue: [0.45, 0.72, 1],
+  cyan: [0.35, 0.87, 0.93],
+  green: [0.47, 0.9, 0.42],
 } as const;
+
+type MarkerStyle = "highlight" | "underline";
 
 const DEFAULT_SETTINGS: PdfHighlightSettings = {
   pdfFolder: "PDFs",
@@ -79,7 +92,19 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     this.addCommand({
       id: "highlight-selection",
       name: "Highlight selection in PDF (marker ink)",
-      callback: () => void this.highlightSelection(),
+      callback: () => void this.highlightSelection("highlight"),
+    });
+
+    this.addCommand({
+      id: "underline-selection",
+      name: "Underline selection in PDF",
+      callback: () => void this.highlightSelection("underline"),
+    });
+
+    this.addCommand({
+      id: "erase-marker",
+      name: "Erase marker under selection",
+      callback: () => void this.eraseUnderSelection(),
     });
 
     this.addCommand({
@@ -96,7 +121,7 @@ export default class PdfHighlightNotesPlugin extends Plugin {
 
     this.addRibbonIcon("file-up", "Import PDF files", () => this.importPdfs());
     this.addRibbonIcon("highlighter", "Highlight selection in PDF", () =>
-      void this.highlightSelection()
+      void this.highlightSelection("highlight")
     );
 
     // Floating buttons that appear next to a PDF text selection, so no
@@ -215,8 +240,10 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       bar?.appendChild(btn);
     };
 
-    addButton("Highlight", () => this.highlightSelection());
-    addButton("Save quote", () => this.saveQuote());
+    addButton("Highlight", () => this.highlightSelection("highlight"));
+    addButton("Underline", () => this.highlightSelection("underline"));
+    addButton("Quote", () => this.saveQuote());
+    addButton("Erase", () => this.eraseUnderSelection());
 
     doc.body.appendChild(bar);
     this.selectionButtons.set(doc, bar);
@@ -307,8 +334,9 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     return { view, file, range, quote, page, pageEl, textLayer };
   }
 
-  // Action 1: paint permanent marker ink into the PDF file. No note involved.
-  private async highlightSelection() {
+  // Action 1: paint permanent marker ink (or an underline) into the PDF file.
+  // No note involved.
+  private async highlightSelection(style: MarkerStyle) {
     const ctx = this.getSelectionContext();
     if (!ctx) return;
 
@@ -322,13 +350,102 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     }
 
     try {
-      await this.paintHighlight(ctx.file, ctx.page, pageBox, lineRects, ctx.quote);
+      await this.paintMarker(
+        ctx.file,
+        ctx.page,
+        pageBox,
+        lineRects,
+        ctx.quote,
+        style
+      );
     } catch (e) {
       console.error("PDF Highlight Notes: could not write annotation", e);
       new Notice("Could not paint into this PDF.");
       return;
     }
-    new Notice(`Highlighted on p. ${ctx.page}`);
+    new Notice(
+      `${style === "underline" ? "Underlined" : "Highlighted"} on p. ${ctx.page}`
+    );
+    this.refreshPdfView(ctx.view, ctx.page);
+  }
+
+  // Eraser: remove any highlight/underline annotations that overlap the
+  // current selection.
+  private async eraseUnderSelection() {
+    const ctx = this.getSelectionContext();
+    if (!ctx) return;
+
+    const pageBox = (
+      ctx.pageEl.querySelector("canvas") ?? ctx.textLayer ?? ctx.pageEl
+    ).getBoundingClientRect();
+    const lineRects = this.mergedLineRects(ctx.range, pageBox);
+    if (lineRects.length === 0) {
+      new Notice("Could not measure the selection on the page.");
+      return;
+    }
+
+    const bytes = await this.app.vault.readBinary(ctx.file);
+    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    const pdfPage = doc.getPage(ctx.page - 1);
+    const { width: pw, height: ph } = pdfPage.getSize();
+
+    // Selection bounding boxes in PDF coordinates.
+    const sx = pw / pageBox.width;
+    const sy = ph / pageBox.height;
+    const selBoxes = lineRects.map((r) => ({
+      x1: (r.left - pageBox.left) * sx,
+      x2: (r.right - pageBox.left) * sx,
+      y1: ph - (r.bottom - pageBox.top) * sy,
+      y2: ph - (r.top - pageBox.top) * sy,
+    }));
+
+    const annots = pdfPage.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+    if (!annots) {
+      new Notice("No markers on this page.");
+      return;
+    }
+
+    const erasable = new Set(["Highlight", "Underline"]);
+    let removed = 0;
+    for (let i = annots.size() - 1; i >= 0; i--) {
+      const dict = annots.lookupMaybe(i, PDFDict);
+      if (!dict) continue;
+      const subtype = dict.get(PDFName.of("Subtype"));
+      if (!(subtype instanceof PDFName) || !erasable.has(subtype.decodeText()))
+        continue;
+      const rectArr = dict.lookupMaybe(PDFName.of("Rect"), PDFArray);
+      if (!rectArr || rectArr.size() < 4) continue;
+      const nums: number[] = [];
+      for (let k = 0; k < 4; k++) {
+        const v = rectArr.lookupMaybe(k, PDFNumber);
+        if (v) nums.push(v.asNumber());
+      }
+      if (nums.length < 4) continue;
+      const ax1 = Math.min(nums[0], nums[2]);
+      const ax2 = Math.max(nums[0], nums[2]);
+      const ay1 = Math.min(nums[1], nums[3]);
+      const ay2 = Math.max(nums[1], nums[3]);
+
+      const overlaps = selBoxes.some(
+        (b) => ax1 < b.x2 && ax2 > b.x1 && ay1 < b.y2 && ay2 > b.y1
+      );
+      if (overlaps) {
+        annots.remove(i);
+        removed++;
+      }
+    }
+
+    if (removed === 0) {
+      new Notice("No marker found under the selection.");
+      return;
+    }
+
+    const out = await doc.save();
+    const buf = new ArrayBuffer(out.byteLength);
+    new Uint8Array(buf).set(out);
+    await this.app.vault.modifyBinary(ctx.file, buf);
+
+    new Notice(`Erased ${removed} marker${removed === 1 ? "" : "s"}`);
     this.refreshPdfView(ctx.view, ctx.page);
   }
 
@@ -410,14 +527,15 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     );
   }
 
-  // Write a real Highlight annotation (with appearance stream) into the PDF,
-  // so the marks persist in the file and are visible in any PDF reader.
-  private async paintHighlight(
+  // Write a real Highlight/Underline annotation (with appearance stream) into
+  // the PDF, so the marks persist in the file and are visible in any reader.
+  private async paintMarker(
     file: TFile,
     page: number,
     pageBox: DOMRect,
     lineRects: DOMRect[],
-    quote: string
+    quote: string,
+    style: MarkerStyle
   ) {
     const bytes = await this.app.vault.readBinary(file);
     const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
@@ -447,19 +565,32 @@ export default class PdfHighlightNotesPlugin extends Plugin {
 
     const [cr, cg, cb] = HIGHLIGHT_COLORS[this.settings.highlightColor];
 
-    // Appearance stream: filled rectangles with Multiply blending, so text
-    // stays readable under the ink — this is what pdf.js and Preview render.
-    const ops = [
-      "/G0 gs",
-      `${cr} ${cg} ${cb} rg`,
-      ...quads.map((q) => {
-        const x = q[4];
-        const y = q[5];
-        const w = q[2] - q[0];
-        const h = q[1] - q[5];
-        return `${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`;
-      }),
-    ].join("\n");
+    // Appearance stream. Highlight: filled rectangles with Multiply blending,
+    // so text stays readable under the ink. Underline: a stroked line along
+    // the bottom edge of each text line.
+    let ops: string;
+    if (style === "underline") {
+      ops = [
+        `${cr} ${cg} ${cb} RG`,
+        ...quads.map((q) => {
+          const y = q[5] + Math.max(0.8, (q[1] - q[5]) * 0.06);
+          const w = Math.max(0.8, (q[1] - q[5]) * 0.08);
+          return `${w.toFixed(2)} w ${q[4].toFixed(2)} ${y.toFixed(2)} m ${q[2].toFixed(2)} ${y.toFixed(2)} l S`;
+        }),
+      ].join("\n");
+    } else {
+      ops = [
+        "/G0 gs",
+        `${cr} ${cg} ${cb} rg`,
+        ...quads.map((q) => {
+          const x = q[4];
+          const y = q[5];
+          const w = q[2] - q[0];
+          const h = q[1] - q[5];
+          return `${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`;
+        }),
+      ].join("\n");
+    }
 
     const appearance = doc.context.stream(ops, {
       Type: "XObject",
@@ -474,7 +605,7 @@ export default class PdfHighlightNotesPlugin extends Plugin {
 
     const annotation = doc.context.obj({
       Type: "Annot",
-      Subtype: "Highlight",
+      Subtype: style === "underline" ? "Underline" : "Highlight",
       Rect: rect,
       QuadPoints: quads.flat(),
       C: [cr, cg, cb],
