@@ -615,9 +615,7 @@ export default class PdfHighlightNotesPlugin extends Plugin {
         [...Array.from(m.addedNodes), ...Array.from(m.removedNodes)].some(
           (n) =>
             n.instanceOf(HTMLElement) &&
-            !(n as HTMLElement).classList.contains(
-              "pdf-highlight-notes-overlay"
-            )
+            !n.classList.contains("pdf-highlight-notes-overlay")
         )
       );
       if (!relevant || scheduled) return;
