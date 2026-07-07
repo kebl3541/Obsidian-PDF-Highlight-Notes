@@ -29,3 +29,22 @@
 .pdf-highlight-notes-btn:hover {
   background-color: var(--interactive-accent-hover);
 }
+
+/* Color swatches shown after choosing Highlight or Underline. */
+.pdf-highlight-notes-swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 50%;
+  cursor: pointer;
+  align-self: center;
+}
+
+.pdf-highlight-notes-swatch.is-active {
+  box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.pdf-highlight-notes-swatch:hover {
+  transform: scale(1.15);
+}

@@ -1,7 +1,7 @@
 {
   "id": "pdf-highlight-notes",
   "name": "PDF Highlight Notes",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "minAppVersion": "1.4.0",
   "description": "Import PDFs into your vault and save text selections as highlight notes with deep links that reopen the PDF at the highlighted passage.",
   "author": "kebl3541",

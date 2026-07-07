@@ -235,29 +235,88 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     if (bar) return bar;
     bar = doc.createElement("div");
     bar.className = "pdf-highlight-notes-toolbar";
-
-    // pointerdown (not click) + preventDefault, so the PDF selection is still
-    // alive when we read it.
-    const addButton = (label: string, action: () => Promise<void>) => {
-      const btn = doc.createElement("button");
-      btn.className = "pdf-highlight-notes-btn";
-      btn.setText(label);
-      btn.addEventListener("pointerdown", (evt) => {
-        evt.preventDefault();
-        evt.stopPropagation();
-        void action().then(() => this.hideSelectionButton(doc));
-      });
-      bar?.appendChild(btn);
-    };
-
-    addButton("Highlight", () => this.highlightSelection("highlight"));
-    addButton("Underline", () => this.highlightSelection("underline"));
-    addButton("Quote", () => this.saveQuote());
-    addButton("Erase", () => this.eraseUnderSelection());
-
+    this.renderToolbar(bar, doc, "main");
     doc.body.appendChild(bar);
     this.selectionButtons.set(doc, bar);
     return bar;
+  }
+
+  // The toolbar has a main row (actions) and two swatch rows (pick a color,
+  // paint with it, and remember it as the new default).
+  private renderToolbar(
+    bar: HTMLDivElement,
+    doc: Document,
+    mode: "main" | "highlight-colors" | "underline-colors"
+  ) {
+    bar.empty();
+
+    // pointerdown (not click) + preventDefault, so the PDF selection is still
+    // alive when we read it.
+    const onPress = (el: HTMLElement, action: () => void) => {
+      el.addEventListener("pointerdown", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        action();
+      });
+    };
+
+    const addButton = (label: string, action: () => void) => {
+      const btn = doc.createElement("button");
+      btn.className = "pdf-highlight-notes-btn";
+      btn.setText(label);
+      onPress(btn, action);
+      bar.appendChild(btn);
+    };
+
+    if (mode === "main") {
+      addButton("Highlight", () =>
+        this.renderToolbar(bar, doc, "highlight-colors")
+      );
+      addButton("Underline", () =>
+        this.renderToolbar(bar, doc, "underline-colors")
+      );
+      addButton("Quote", () =>
+        void this.saveQuote().then(() => this.hideSelectionButton(doc))
+      );
+      addButton("Erase", () =>
+        void this.eraseUnderSelection().then(() =>
+          this.hideSelectionButton(doc)
+        )
+      );
+      return;
+    }
+
+    // Swatch row for picking the color to paint with.
+    const style: MarkerStyle = mode === "highlight-colors" ? "highlight" : "underline";
+    const palette: Record<string, readonly number[]> =
+      style === "highlight" ? HIGHLIGHT_COLORS : UNDERLINE_COLORS;
+    const current =
+      style === "highlight"
+        ? this.settings.highlightColor
+        : this.settings.underlineColor;
+
+    addButton("‹", () => this.renderToolbar(bar, doc, "main"));
+
+    for (const [name, rgb] of Object.entries(palette)) {
+      const swatch = doc.createElement("button");
+      swatch.className = "pdf-highlight-notes-swatch";
+      if (name === current) swatch.addClass("is-active");
+      swatch.setAttribute("aria-label", name);
+      swatch.style.backgroundColor = `rgb(${Math.round(rgb[0] * 255)}, ${Math.round(rgb[1] * 255)}, ${Math.round(rgb[2] * 255)})`;
+      onPress(swatch, () => {
+        // Remember the choice as the new default, then paint.
+        if (style === "highlight") {
+          this.settings.highlightColor = name as keyof typeof HIGHLIGHT_COLORS;
+        } else {
+          this.settings.underlineColor = name as keyof typeof UNDERLINE_COLORS;
+        }
+        void this.saveSettings();
+        void this.highlightSelection(style).then(() =>
+          this.hideSelectionButton(doc)
+        );
+      });
+      bar.appendChild(swatch);
+    }
   }
 
   private hideSelectionButton(doc: Document) {
@@ -283,6 +342,8 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       return;
     }
     const btn = this.getSelectionButton(doc);
+    // Fresh selection → start from the main action row, not a swatch row.
+    if (!btn.hasClass("is-visible")) this.renderToolbar(btn, doc, "main");
     btn.addClass("is-visible");
     const margin = 8;
     const top = Math.max(margin, rect.top - 34);
