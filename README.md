@@ -2,6 +2,11 @@
 
 An Obsidian plugin to **import, read, and highlight PDFs** inside your vault.
 
+If you enjoy using this plugin, don't forget to ⭐ star the repository to show
+your support!
+
+<a href="https://buymeacoffee.com/philosophizer"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-orange.png" alt="Buy me a coffee" height="42"></a>
+
 PDFs open in Obsidian's built-in viewer. When you select a passage, one command
 saves it as a quote in a companion *highlights note* — with a deep link that
 reopens the PDF **at that exact passage, highlighted**. Your highlights become
