@@ -41,6 +41,9 @@ interface TextLayerPosition {
 export default class PdfHighlightNotesPlugin extends Plugin {
   settings: PdfHighlightSettings = DEFAULT_SETTINGS;
 
+  // One floating save-button per window (main window + popouts).
+  private selectionButtons = new Map<Document, HTMLButtonElement>();
+
   async onload() {
     await this.loadSettings();
 
@@ -67,7 +70,22 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       void this.saveHighlight()
     );
 
+    // Floating "Save highlight" button that appears next to a PDF text
+    // selection, so no command or hotkey is needed. Registered per window so
+    // popouts work too.
+    this.setupSelectionButton(activeDocument);
+    this.registerEvent(
+      this.app.workspace.on("window-open", (win) =>
+        this.setupSelectionButton(win.doc)
+      )
+    );
+
     this.addSettingTab(new PdfHighlightSettingTab(this));
+  }
+
+  onunload() {
+    for (const btn of this.selectionButtons.values()) btn.remove();
+    this.selectionButtons.clear();
   }
 
   async loadSettings() {
@@ -132,6 +150,70 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       throw new Error(`${normalized} exists but is not a folder`);
     }
     return this.app.vault.createFolder(normalized);
+  }
+
+  // ---- Floating selection button -------------------------------------------
+
+  private setupSelectionButton(doc: Document) {
+    this.registerDomEvent(doc, "selectionchange", () =>
+      this.updateSelectionButton(doc)
+    );
+    // Hide while scrolling so the button doesn't drift from the selection.
+    this.registerDomEvent(
+      doc,
+      "wheel",
+      () => this.hideSelectionButton(doc),
+      { capture: true, passive: true }
+    );
+  }
+
+  private getSelectionButton(doc: Document): HTMLButtonElement {
+    let btn = this.selectionButtons.get(doc);
+    if (btn) return btn;
+    btn = doc.createElement("button");
+    btn.className = "pdf-highlight-notes-save-btn";
+    btn.setText("Save highlight");
+    // pointerdown (not click) + preventDefault, so the PDF selection is still
+    // alive when we read it.
+    btn.addEventListener("pointerdown", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      void this.saveHighlight().then(() => this.hideSelectionButton(doc));
+    });
+    doc.body.appendChild(btn);
+    this.selectionButtons.set(doc, btn);
+    return btn;
+  }
+
+  private hideSelectionButton(doc: Document) {
+    const btn = this.selectionButtons.get(doc);
+    if (btn) btn.removeClass("is-visible");
+  }
+
+  private updateSelectionButton(doc: Document) {
+    const sel = doc.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+      this.hideSelectionButton(doc);
+      return;
+    }
+    // Only offer the button for selections inside a PDF text layer.
+    const range = sel.getRangeAt(0);
+    if (!this.closestElement(range.startContainer, ".textLayer")) {
+      this.hideSelectionButton(doc);
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) {
+      this.hideSelectionButton(doc);
+      return;
+    }
+    const btn = this.getSelectionButton(doc);
+    btn.addClass("is-visible");
+    const margin = 8;
+    const top = Math.max(margin, rect.top - 34);
+    const left = Math.max(margin, rect.left + rect.width / 2 - 55);
+    btn.style.top = `${top}px`;
+    btn.style.left = `${left}px`;
   }
 
   // ---- Highlighting -------------------------------------------------------

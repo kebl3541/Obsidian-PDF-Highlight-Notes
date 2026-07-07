@@ -1,2 +1,23 @@
-/* PDF Highlight Notes — no custom UI styling needed yet; callouts use the
-   theme's native quote styling. Kept for the release pipeline. */
+/* Floating "Save highlight" button shown next to a PDF text selection. */
+.pdf-highlight-notes-save-btn {
+  position: fixed;
+  display: none;
+  z-index: var(--layer-tooltip, 999);
+  padding: 4px 12px;
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  color: var(--text-on-accent);
+  background-color: var(--interactive-accent);
+  border: none;
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s);
+  cursor: pointer;
+}
+
+.pdf-highlight-notes-save-btn.is-visible {
+  display: block;
+}
+
+.pdf-highlight-notes-save-btn:hover {
+  background-color: var(--interactive-accent-hover);
+}
