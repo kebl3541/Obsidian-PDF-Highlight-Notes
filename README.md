@@ -13,7 +13,7 @@ continued development, please use the buttons below:</p>
 <a href="https://buymeacoffee.com/philosophizer"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="52"></a>
 </p>
 
-<p align="center">…and if this plugin makes your day a little easier, please give it a ⭐ on <a href="https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes">GitHub</a> — it helps others find it!</p>
+<p align="center">…and if this plugin makes your day a little easier, please give it a ⭐ on <a href="https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes">GitHub</a>, it helps others find it!</p>
 
 
 
@@ -22,27 +22,27 @@ An Obsidian plugin to **import, read, and highlight PDFs** inside your vault.
 PDFs open in Obsidian's built-in viewer. Select a passage and a small floating
 toolbar appears with two **independent** actions:
 
-- **Highlight** — paints a permanent marker highlight **into the PDF file
+- **Highlight**: paints a permanent marker highlight **into the PDF file
   itself**, like a real highlighter on paper. The ink stays across restarts and
   is visible in any PDF reader (Preview, Acrobat, …). Colors: yellow (default),
   green, pink, or blue.
-- **Save quote** — saves the passage as a quote in a companion *highlights
+- **Save quote**: saves the passage as a quote in a companion *highlights
   note*, with a deep link that reopens the PDF at that exact passage. The PDF
   file is not modified. Your quotes are ordinary Markdown: searchable,
   linkable, and taggable.
 
-Use either one, or both — they don't affect each other.
+Use either one, or both. They don't affect each other.
 
 ## Commands
 
-- **Import PDF files into vault** — file picker; copies PDFs into your vault
+- **Import PDF files into vault**: file picker; copies PDFs into your vault
   (folder configurable) and opens the first one. Also available as a ribbon
   button.
-- **Save PDF selection as highlight** — with text selected in an open PDF,
+- **Save PDF selection as highlight**: with text selected in an open PDF,
   saves it as a `> [!quote]` callout in `PDF Highlights/<name> (highlights).md`,
   linked back to the page and selection. Bind this to a hotkey for one-press
   highlighting. Also available as a ribbon button.
-- **Open highlights note for this PDF** — opens the companion note beside the
+- **Open highlights note for this PDF**: opens the companion note beside the
   PDF.
 
 ## Example highlight
@@ -57,10 +57,10 @@ Obsidian's native viewer.
 
 ## Settings
 
-- **PDF folder** — where imported PDFs are stored (default `PDFs`).
-- **Highlights folder** — where highlight notes are created (default
+- **PDF folder**: where imported PDFs are stored (default `PDFs`).
+- **Highlights folder**: where highlight notes are created (default
   `PDF Highlights`).
-- **Open note after highlighting** — show the highlights note beside the PDF
+- **Open note after highlighting**: show the highlights note beside the PDF
   after each save.
 
 ## Install (manual)
