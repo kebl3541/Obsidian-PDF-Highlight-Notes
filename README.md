@@ -13,6 +13,8 @@ continued development, please use the buttons below:</p>
 <a href="https://buymeacoffee.com/philosophizer"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="52"></a>
 </p>
 
+<p align="center">…and if this plugin makes your day a little easier, please give it a ⭐ on <a href="https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes">GitHub</a> — it helps others find it!</p>
+
 
 
 An Obsidian plugin to **import, read, and highlight PDFs** inside your vault.
