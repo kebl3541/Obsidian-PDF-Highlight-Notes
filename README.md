@@ -1,5 +1,8 @@
 # PDF Highlight Notes
 
+[![GitHub stars](https://img.shields.io/github/stars/kebl3541/Obsidian-PDF-Highlight-Notes?style=flat&logo=github&label=Stars)](https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes/stargazers)
+[![Latest release](https://img.shields.io/github/v/release/kebl3541/Obsidian-PDF-Highlight-Notes?style=flat&label=Release)](https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes/releases/latest)
+
 An Obsidian plugin to **import, read, and highlight PDFs** inside your vault.
 
 If you enjoy using this plugin, don't forget to ⭐ star the repository to show
