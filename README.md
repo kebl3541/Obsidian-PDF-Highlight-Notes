@@ -13,6 +13,8 @@ continued development, please use the buttons below:</p>
 <a href="https://buymeacoffee.com/philosophizer"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-philosophizer-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" height="42"></a>
 </p>
 
+<p align="center"><strong><a href="https://buymeacoffee.com/philosophizer">☕ Buy me a coffee</a></strong>&nbsp;&nbsp;·&nbsp;&nbsp;<strong><a href="https://www.paypal.com/donate/?business=berlin.philosophy%40gmail.com&no_recurring=0&currency_code=EUR">💙 Donate via PayPal</a></strong></p>
+
 <p align="center">…and if this plugin makes your day a little easier, please give it a ⭐ on <a href="https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes">GitHub</a>, it helps others find it!</p>
 
 
