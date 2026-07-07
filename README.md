@@ -4,13 +4,18 @@
 [![GitHub stars](https://img.shields.io/github/stars/kebl3541/Obsidian-PDF-Highlight-Notes?style=flat&logo=github&label=Stars)](https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes/stargazers)
 [![Latest release](https://img.shields.io/github/v/release/kebl3541/Obsidian-PDF-Highlight-Notes?style=flat&label=Release)](https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes/releases/latest)
 
+<p align="center">If this plugin adds value for you and you would like to help support
+continued development, please use the buttons below:</p>
+
+<p align="center">
+<a href="https://www.paypal.com/donate/?business=berlin.philosophy%40gmail.com&no_recurring=0&currency_code=EUR"><img src="https://www.paypalobjects.com/webstatic/mktg/Logo/pp-logo-200px.png" alt="PayPal" height="42"></a>
+&nbsp;&nbsp;
+<a href="https://buymeacoffee.com/philosophizer"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="52"></a>
+</p>
+
+
 
 An Obsidian plugin to **import, read, and highlight PDFs** inside your vault.
-
-If you enjoy using this plugin, don't forget to ⭐ star the repository to show
-your support!
-
-<a href="https://buymeacoffee.com/philosophizer"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-orange.png" alt="Buy me a coffee" height="42"></a>
 
 PDFs open in Obsidian's built-in viewer. Select a passage and a small floating
 toolbar appears with two **independent** actions:
@@ -65,10 +70,12 @@ Obsidian's native viewer.
 
 ## Support
 
-If this plugin is useful to you, you can support its development:
+If this plugin adds value for you and you would like to help support continued
+development, please use the buttons below:
 
-<a href="https://buymeacoffee.com/philosophizer"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-orange.png" alt="Buy me a coffee" height="42"></a>
-<a href="https://www.paypal.com/donate/?business=berlin.philosophy%40gmail.com&no_recurring=0&currency_code=EUR"><img src="https://img.shields.io/badge/PayPal-Donate-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Donate via PayPal" height="42"></a>
+<a href="https://www.paypal.com/donate/?business=berlin.philosophy%40gmail.com&no_recurring=0&currency_code=EUR"><img src="https://www.paypalobjects.com/webstatic/mktg/Logo/pp-logo-200px.png" alt="PayPal" height="42"></a>
+&nbsp;&nbsp;
+<a href="https://buymeacoffee.com/philosophizer"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="52"></a>
 
 
 ## License
