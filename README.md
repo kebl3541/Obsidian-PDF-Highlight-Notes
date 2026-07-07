@@ -10,7 +10,7 @@ continued development, please use the buttons below:</p>
 <p align="center">
 <a href="https://www.paypal.com/donate/?business=berlin.philosophy%40gmail.com&no_recurring=0&currency_code=EUR"><img src="https://www.paypalobjects.com/webstatic/mktg/Logo/pp-logo-200px.png" alt="PayPal" height="42"></a>
 &nbsp;&nbsp;
-<a href="https://buymeacoffee.com/philosophizer"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="52"></a>
+<a href="https://buymeacoffee.com/philosophizer"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-philosophizer-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" height="42"></a>
 </p>
 
 <p align="center">…and if this plugin makes your day a little easier, please give it a ⭐ on <a href="https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes">GitHub</a>, it helps others find it!</p>
@@ -77,7 +77,7 @@ development, please use the buttons below:
 
 <a href="https://www.paypal.com/donate/?business=berlin.philosophy%40gmail.com&no_recurring=0&currency_code=EUR"><img src="https://www.paypalobjects.com/webstatic/mktg/Logo/pp-logo-200px.png" alt="PayPal" height="42"></a>
 &nbsp;&nbsp;
-<a href="https://buymeacoffee.com/philosophizer"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="52"></a>
+<a href="https://buymeacoffee.com/philosophizer"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-philosophizer-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" height="42"></a>
 
 
 ## License
