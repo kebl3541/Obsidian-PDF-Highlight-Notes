@@ -7,16 +7,19 @@ your support!
 
 <a href="https://buymeacoffee.com/philosophizer"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-orange.png" alt="Buy me a coffee" height="42"></a>
 
-PDFs open in Obsidian's built-in viewer. Select a passage and click the
-floating **Save highlight** button that appears: the plugin paints a **permanent
-marker highlight into the PDF file itself** — like a real highlighter on paper.
-The ink stays across restarts and is visible in any PDF reader (Preview,
-Acrobat, …). Colors: yellow (default), green, pink, or blue.
+PDFs open in Obsidian's built-in viewer. Select a passage and a small floating
+toolbar appears with two **independent** actions:
 
-Each highlight is also saved as a quote in a companion *highlights note* — with
-a deep link that reopens the PDF at that exact passage. Your highlights become
-ordinary Markdown: searchable, linkable, and taggable like any other note.
-(This can be turned off in settings if you only want the ink.)
+- **Highlight** — paints a permanent marker highlight **into the PDF file
+  itself**, like a real highlighter on paper. The ink stays across restarts and
+  is visible in any PDF reader (Preview, Acrobat, …). Colors: yellow (default),
+  green, pink, or blue.
+- **Save quote** — saves the passage as a quote in a companion *highlights
+  note*, with a deep link that reopens the PDF at that exact passage. The PDF
+  file is not modified. Your quotes are ordinary Markdown: searchable,
+  linkable, and taggable.
+
+Use either one, or both — they don't affect each other.
 
 ## Commands
 
