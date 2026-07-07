@@ -1,23 +1,31 @@
-/* Floating "Save highlight" button shown next to a PDF text selection. */
-.pdf-highlight-notes-save-btn {
+/* Floating toolbar shown next to a PDF text selection. */
+.pdf-highlight-notes-toolbar {
   position: fixed;
   display: none;
   z-index: var(--layer-tooltip, 999);
-  padding: 4px 12px;
+  gap: 4px;
+  padding: 3px;
+  background-color: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-s);
+}
+
+.pdf-highlight-notes-toolbar.is-visible {
+  display: flex;
+}
+
+.pdf-highlight-notes-btn {
+  padding: 3px 10px;
   font-size: var(--font-ui-small);
   font-weight: 600;
   color: var(--text-on-accent);
   background-color: var(--interactive-accent);
   border: none;
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow-s);
+  border-radius: var(--radius-s);
   cursor: pointer;
 }
 
-.pdf-highlight-notes-save-btn.is-visible {
-  display: block;
-}
-
-.pdf-highlight-notes-save-btn:hover {
+.pdf-highlight-notes-btn:hover {
   background-color: var(--interactive-accent-hover);
 }

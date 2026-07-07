@@ -15,12 +15,10 @@ interface PdfHighlightSettings {
   pdfFolder: string;
   // Folder where highlight notes are created.
   highlightsFolder: string;
-  // Open the highlights note beside the PDF after saving a highlight.
+  // Open the highlights note beside the PDF after saving a quote.
   openNoteAfterHighlight: boolean;
   // Marker color painted into the PDF file.
   highlightColor: keyof typeof HIGHLIGHT_COLORS;
-  // Also collect each highlight as a quote in the companion note.
-  alsoSaveNote: boolean;
 }
 
 // RGB in PDF color space (0..1), tuned to look like real marker ink.
@@ -36,8 +34,18 @@ const DEFAULT_SETTINGS: PdfHighlightSettings = {
   highlightsFolder: "PDF Highlights",
   openNoteAfterHighlight: false,
   highlightColor: "yellow",
-  alsoSaveNote: true,
 };
+
+// Everything both actions need to know about the current PDF selection.
+interface SelectionContext {
+  view: PdfViewLike;
+  file: TFile;
+  range: Range;
+  quote: string;
+  page: number;
+  pageEl: Element;
+  textLayer: Element | null;
+}
 
 // The built-in PDF view isn't part of Obsidian's public typings; we only
 // touch the small surface we need.
@@ -56,8 +64,8 @@ interface TextLayerPosition {
 export default class PdfHighlightNotesPlugin extends Plugin {
   settings: PdfHighlightSettings = DEFAULT_SETTINGS;
 
-  // One floating save-button per window (main window + popouts).
-  private selectionButtons = new Map<Document, HTMLButtonElement>();
+  // One floating button toolbar per window (main window + popouts).
+  private selectionButtons = new Map<Document, HTMLDivElement>();
 
   async onload() {
     await this.loadSettings();
@@ -69,9 +77,15 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     });
 
     this.addCommand({
-      id: "save-highlight",
-      name: "Save PDF selection as highlight",
-      callback: () => void this.saveHighlight(),
+      id: "highlight-selection",
+      name: "Highlight selection in PDF (marker ink)",
+      callback: () => void this.highlightSelection(),
+    });
+
+    this.addCommand({
+      id: "save-quote",
+      name: "Save PDF selection to highlights note",
+      callback: () => void this.saveQuote(),
     });
 
     this.addCommand({
@@ -81,13 +95,12 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     });
 
     this.addRibbonIcon("file-up", "Import PDF files", () => this.importPdfs());
-    this.addRibbonIcon("highlighter", "Save PDF selection as highlight", () =>
-      void this.saveHighlight()
+    this.addRibbonIcon("highlighter", "Highlight selection in PDF", () =>
+      void this.highlightSelection()
     );
 
-    // Floating "Save highlight" button that appears next to a PDF text
-    // selection, so no command or hotkey is needed. Registered per window so
-    // popouts work too.
+    // Floating buttons that appear next to a PDF text selection, so no
+    // command or hotkey is needed. Registered per window so popouts work too.
     this.setupSelectionButton(activeDocument);
     this.registerEvent(
       this.app.workspace.on("window-open", (win) =>
@@ -182,22 +195,32 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     );
   }
 
-  private getSelectionButton(doc: Document): HTMLButtonElement {
-    let btn = this.selectionButtons.get(doc);
-    if (btn) return btn;
-    btn = doc.createElement("button");
-    btn.className = "pdf-highlight-notes-save-btn";
-    btn.setText("Save highlight");
+  private getSelectionButton(doc: Document): HTMLDivElement {
+    let bar = this.selectionButtons.get(doc);
+    if (bar) return bar;
+    bar = doc.createElement("div");
+    bar.className = "pdf-highlight-notes-toolbar";
+
     // pointerdown (not click) + preventDefault, so the PDF selection is still
     // alive when we read it.
-    btn.addEventListener("pointerdown", (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      void this.saveHighlight().then(() => this.hideSelectionButton(doc));
-    });
-    doc.body.appendChild(btn);
-    this.selectionButtons.set(doc, btn);
-    return btn;
+    const addButton = (label: string, action: () => Promise<void>) => {
+      const btn = doc.createElement("button");
+      btn.className = "pdf-highlight-notes-btn";
+      btn.setText(label);
+      btn.addEventListener("pointerdown", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        void action().then(() => this.hideSelectionButton(doc));
+      });
+      bar?.appendChild(btn);
+    };
+
+    addButton("Highlight", () => this.highlightSelection());
+    addButton("Save quote", () => this.saveQuote());
+
+    doc.body.appendChild(bar);
+    this.selectionButtons.set(doc, bar);
+    return bar;
   }
 
   private hideSelectionButton(doc: Document) {
@@ -226,7 +249,7 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     btn.addClass("is-visible");
     const margin = 8;
     const top = Math.max(margin, rect.top - 34);
-    const left = Math.max(margin, rect.left + rect.width / 2 - 55);
+    const left = Math.max(margin, rect.left + rect.width / 2 - 85);
     btn.style.top = `${top}px`;
     btn.style.left = `${left}px`;
   }
@@ -254,19 +277,21 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     return null;
   }
 
-  private async saveHighlight() {
+  // Everything both actions need about the current PDF selection, or null
+  // (with a Notice explaining why) when there is no usable selection.
+  private getSelectionContext(): SelectionContext | null {
     const view = this.getActivePdfView();
     const file = view?.file;
     if (!view || !file) {
       new Notice("Open a PDF and select some text first.");
-      return;
+      return null;
     }
 
     const sel = activeWindow.getSelection();
     const quote = sel?.toString().replace(/\s+/g, " ").trim() ?? "";
     if (!sel || sel.rangeCount === 0 || quote === "") {
       new Notice("Select some text in the PDF first.");
-      return;
+      return null;
     }
 
     const range = sel.getRangeAt(0);
@@ -275,74 +300,80 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     const page = pageAttr ? parseInt(pageAttr, 10) : NaN;
     if (!pageEl || Number.isNaN(page)) {
       new Notice("Could not determine the PDF page of the selection.");
+      return null;
+    }
+
+    const textLayer = pageEl.querySelector(".textLayer");
+    return { view, file, range, quote, page, pageEl, textLayer };
+  }
+
+  // Action 1: paint permanent marker ink into the PDF file. No note involved.
+  private async highlightSelection() {
+    const ctx = this.getSelectionContext();
+    if (!ctx) return;
+
+    const pageBox = (
+      ctx.pageEl.querySelector("canvas") ?? ctx.textLayer ?? ctx.pageEl
+    ).getBoundingClientRect();
+    const lineRects = this.mergedLineRects(ctx.range, pageBox);
+    if (lineRects.length === 0) {
+      new Notice("Could not measure the selection on the page.");
       return;
     }
 
+    try {
+      await this.paintHighlight(ctx.file, ctx.page, pageBox, lineRects, ctx.quote);
+    } catch (e) {
+      console.error("PDF Highlight Notes: could not write annotation", e);
+      new Notice("Could not paint into this PDF.");
+      return;
+    }
+    new Notice(`Highlighted on p. ${ctx.page}`);
+    this.refreshPdfView(ctx.view, ctx.page);
+  }
+
+  // Action 2: save the selection as a linked quote in the highlights note.
+  // The PDF file is not touched.
+  private async saveQuote() {
+    const ctx = this.getSelectionContext();
+    if (!ctx) return;
+
     // Build the same subpath Obsidian uses for "copy link to selection":
     // #page=N&selection=startIndex,startOffset,endIndex,endOffset
-    let subpath = `#page=${page}`;
-    const textLayer = pageEl.querySelector(".textLayer");
-    if (textLayer) {
+    let subpath = `#page=${ctx.page}`;
+    if (ctx.textLayer) {
       const start = this.textLayerPosition(
-        textLayer,
-        range.startContainer,
-        range.startOffset
+        ctx.textLayer,
+        ctx.range.startContainer,
+        ctx.range.startOffset
       );
       const end = this.textLayerPosition(
-        textLayer,
-        range.endContainer,
-        range.endOffset
+        ctx.textLayer,
+        ctx.range.endContainer,
+        ctx.range.endOffset
       );
       if (start && end) {
         subpath += `&selection=${start.index},${start.offset},${end.index},${end.offset}`;
       }
     }
 
-    // Capture the on-screen geometry of the selection before any async work,
-    // then paint a permanent marker highlight into the PDF file itself.
-    const pageBox = (
-      pageEl.querySelector("canvas") ?? textLayer ?? pageEl
-    ).getBoundingClientRect();
-    const lineRects = this.mergedLineRects(range, pageBox);
+    const note = await this.getOrCreateHighlightsNote(ctx.file);
+    const link = this.app.fileManager
+      .generateMarkdownLink(ctx.file, note.path, subpath, `p. ${ctx.page}`)
+      .replace(/^!/, ""); // embed marker would render the PDF inline
 
-    let painted = false;
-    if (lineRects.length > 0) {
-      try {
-        await this.paintHighlight(file, page, pageBox, lineRects, quote);
-        painted = true;
-      } catch (e) {
-        console.error("PDF Highlight Notes: could not write annotation", e);
-      }
-    }
+    const entry = [
+      "",
+      `> [!quote] ${link}`,
+      ...ctx.quote.split("\n").map((l) => `> ${l}`),
+      "",
+    ].join("\n");
 
-    if (this.settings.alsoSaveNote) {
-      const note = await this.getOrCreateHighlightsNote(file);
-      const link = this.app.fileManager
-        .generateMarkdownLink(file, note.path, subpath, `p. ${page}`)
-        .replace(/^!/, ""); // embed marker would render the PDF inline
+    await this.app.vault.append(note, entry);
+    new Notice(`Quote saved to ${note.basename}`);
 
-      const entry = [
-        "",
-        `> [!quote] ${link}`,
-        ...quote.split("\n").map((l) => `> ${l}`),
-        "",
-      ].join("\n");
-
-      await this.app.vault.append(note, entry);
-    }
-
-    new Notice(
-      painted
-        ? `Highlighted on p. ${page}`
-        : "Saved quote (could not paint into the PDF)"
-    );
-
-    if (painted) {
-      this.refreshPdfView(view, page);
-    }
-
-    if (this.settings.alsoSaveNote && this.settings.openNoteAfterHighlight) {
-      await this.openBeside(await this.getOrCreateHighlightsNote(file));
+    if (this.settings.openNoteAfterHighlight) {
+      await this.openBeside(note);
     }
   }
 
@@ -607,20 +638,8 @@ class PdfHighlightSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Also save quote to highlights note")
-      .setDesc(
-        "Besides painting the PDF, collect each highlight as a linked quote in the companion note."
-      )
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.alsoSaveNote).onChange(async (v) => {
-          this.plugin.settings.alsoSaveNote = v;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName("Open note after highlighting")
-      .setDesc("Open the highlights note beside the PDF after saving a highlight.")
+      .setName("Open note after saving a quote")
+      .setDesc("Open the highlights note beside the PDF after saving a quote.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.openNoteAfterHighlight)
