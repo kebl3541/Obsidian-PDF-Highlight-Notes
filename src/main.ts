@@ -8,6 +8,7 @@ import {
   View,
   normalizePath,
 } from "obsidian";
+import { PDFArray, PDFDocument, PDFName, PDFString } from "pdf-lib";
 
 interface PdfHighlightSettings {
   // Folder where imported PDFs are stored.
@@ -16,12 +17,26 @@ interface PdfHighlightSettings {
   highlightsFolder: string;
   // Open the highlights note beside the PDF after saving a highlight.
   openNoteAfterHighlight: boolean;
+  // Marker color painted into the PDF file.
+  highlightColor: keyof typeof HIGHLIGHT_COLORS;
+  // Also collect each highlight as a quote in the companion note.
+  alsoSaveNote: boolean;
 }
+
+// RGB in PDF color space (0..1), tuned to look like real marker ink.
+const HIGHLIGHT_COLORS = {
+  yellow: [1, 0.82, 0.16],
+  green: [0.47, 0.9, 0.42],
+  pink: [1, 0.53, 0.72],
+  blue: [0.45, 0.72, 1],
+} as const;
 
 const DEFAULT_SETTINGS: PdfHighlightSettings = {
   pdfFolder: "PDFs",
   highlightsFolder: "PDF Highlights",
   openNoteAfterHighlight: false,
+  highlightColor: "yellow",
+  alsoSaveNote: true,
 };
 
 // The built-in PDF view isn't part of Obsidian's public typings; we only
@@ -283,24 +298,182 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       }
     }
 
-    const note = await this.getOrCreateHighlightsNote(file);
-    const link = this.app.fileManager
-      .generateMarkdownLink(file, note.path, subpath, `p. ${page}`)
-      .replace(/^!/, ""); // embed marker would render the PDF inline
+    // Capture the on-screen geometry of the selection before any async work,
+    // then paint a permanent marker highlight into the PDF file itself.
+    const pageBox = (
+      pageEl.querySelector("canvas") ?? textLayer ?? pageEl
+    ).getBoundingClientRect();
+    const lineRects = this.mergedLineRects(range, pageBox);
 
-    const entry = [
-      "",
-      `> [!quote] ${link}`,
-      ...quote.split("\n").map((l) => `> ${l}`),
-      "",
+    let painted = false;
+    if (lineRects.length > 0) {
+      try {
+        await this.paintHighlight(file, page, pageBox, lineRects, quote);
+        painted = true;
+      } catch (e) {
+        console.error("PDF Highlight Notes: could not write annotation", e);
+      }
+    }
+
+    if (this.settings.alsoSaveNote) {
+      const note = await this.getOrCreateHighlightsNote(file);
+      const link = this.app.fileManager
+        .generateMarkdownLink(file, note.path, subpath, `p. ${page}`)
+        .replace(/^!/, ""); // embed marker would render the PDF inline
+
+      const entry = [
+        "",
+        `> [!quote] ${link}`,
+        ...quote.split("\n").map((l) => `> ${l}`),
+        "",
+      ].join("\n");
+
+      await this.app.vault.append(note, entry);
+    }
+
+    new Notice(
+      painted
+        ? `Highlighted on p. ${page}`
+        : "Saved quote (could not paint into the PDF)"
+    );
+
+    if (painted) {
+      this.refreshPdfView(view, page);
+    }
+
+    if (this.settings.alsoSaveNote && this.settings.openNoteAfterHighlight) {
+      await this.openBeside(await this.getOrCreateHighlightsNote(file));
+    }
+  }
+
+  // Merge the selection's client rects into one rect per text line, in
+  // viewport coordinates, clipped to the page that the selection starts on.
+  private mergedLineRects(range: Range, pageBox: DOMRect): DOMRect[] {
+    const rects = Array.from(range.getClientRects()).filter(
+      (r) =>
+        r.width > 1 &&
+        r.height > 1 &&
+        r.left >= pageBox.left - 1 &&
+        r.right <= pageBox.right + 1 &&
+        r.top >= pageBox.top - 1 &&
+        r.bottom <= pageBox.bottom + 1
+    );
+    rects.sort((a, b) => a.top - b.top || a.left - b.left);
+
+    const lines: { top: number; bottom: number; left: number; right: number }[] =
+      [];
+    for (const r of rects) {
+      const line = lines[lines.length - 1];
+      // Same line when vertical overlap is substantial.
+      if (line && r.top < line.bottom - r.height / 2) {
+        line.left = Math.min(line.left, r.left);
+        line.right = Math.max(line.right, r.right);
+        line.top = Math.min(line.top, r.top);
+        line.bottom = Math.max(line.bottom, r.bottom);
+      } else {
+        lines.push({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
+      }
+    }
+    return lines.map(
+      (l) => new DOMRect(l.left, l.top, l.right - l.left, l.bottom - l.top)
+    );
+  }
+
+  // Write a real Highlight annotation (with appearance stream) into the PDF,
+  // so the marks persist in the file and are visible in any PDF reader.
+  private async paintHighlight(
+    file: TFile,
+    page: number,
+    pageBox: DOMRect,
+    lineRects: DOMRect[],
+    quote: string
+  ) {
+    const bytes = await this.app.vault.readBinary(file);
+    const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    const pdfPage = doc.getPage(page - 1);
+    const { width: pw, height: ph } = pdfPage.getSize();
+
+    // Map viewport pixels -> PDF points (origin bottom-left).
+    const sx = pw / pageBox.width;
+    const sy = ph / pageBox.height;
+    const quads: number[][] = lineRects.map((r) => {
+      const x1 = (r.left - pageBox.left) * sx;
+      const x2 = (r.right - pageBox.left) * sx;
+      const yTop = ph - (r.top - pageBox.top) * sy;
+      const yBot = ph - (r.bottom - pageBox.top) * sy;
+      // QuadPoints order: top-left, top-right, bottom-left, bottom-right.
+      return [x1, yTop, x2, yTop, x1, yBot, x2, yBot];
+    });
+
+    const xs = quads.flatMap((q) => [q[0], q[2]]);
+    const ys = quads.flatMap((q) => [q[1], q[5]]);
+    const rect = [
+      Math.min(...xs),
+      Math.min(...ys),
+      Math.max(...xs),
+      Math.max(...ys),
+    ];
+
+    const [cr, cg, cb] = HIGHLIGHT_COLORS[this.settings.highlightColor];
+
+    // Appearance stream: filled rectangles with Multiply blending, so text
+    // stays readable under the ink — this is what pdf.js and Preview render.
+    const ops = [
+      "/G0 gs",
+      `${cr} ${cg} ${cb} rg`,
+      ...quads.map((q) => {
+        const x = q[4];
+        const y = q[5];
+        const w = q[2] - q[0];
+        const h = q[1] - q[5];
+        return `${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`;
+      }),
     ].join("\n");
 
-    await this.app.vault.append(note, entry);
-    new Notice(`Highlight saved to ${note.basename}`);
+    const appearance = doc.context.stream(ops, {
+      Type: "XObject",
+      Subtype: "Form",
+      FormType: 1,
+      BBox: rect,
+      Resources: {
+        ExtGState: { G0: { Type: "ExtGState", BM: "Multiply", CA: 1, ca: 1 } },
+      },
+    });
+    const appearanceRef = doc.context.register(appearance);
 
-    if (this.settings.openNoteAfterHighlight) {
-      await this.openBeside(note);
+    const annotation = doc.context.obj({
+      Type: "Annot",
+      Subtype: "Highlight",
+      Rect: rect,
+      QuadPoints: quads.flat(),
+      C: [cr, cg, cb],
+      F: 4, // print flag
+      Contents: PDFString.of(quote.slice(0, 500)),
+      T: PDFString.of("PDF Highlight Notes"),
+      AP: { N: appearanceRef },
+    });
+    const annotationRef = doc.context.register(annotation);
+
+    const existing = pdfPage.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
+    if (existing) {
+      existing.push(annotationRef);
+    } else {
+      pdfPage.node.set(PDFName.of("Annots"), doc.context.obj([annotationRef]));
     }
+
+    const out = await doc.save();
+    // Copy into a plain ArrayBuffer for the vault API.
+    const buf = new ArrayBuffer(out.byteLength);
+    new Uint8Array(buf).set(out);
+    await this.app.vault.modifyBinary(file, buf);
+  }
+
+  // After the file changes on disk the viewer reloads; put the reader back on
+  // the page they were highlighting.
+  private refreshPdfView(view: PdfViewLike, page: number) {
+    window.setTimeout(() => {
+      view.setEphemeralState({ subpath: `#page=${page}` });
+    }, 600);
   }
 
   // Map a DOM position inside the text layer to Obsidian's
@@ -420,6 +593,29 @@ class PdfHighlightSettingTab extends PluginSettingTab {
             this.plugin.settings.highlightsFolder = v.trim() || "PDF Highlights";
             await this.plugin.saveSettings();
           })
+      );
+
+    new Setting(containerEl)
+      .setName("Highlight color")
+      .setDesc("Marker color painted into the PDF.")
+      .addDropdown((dd) => {
+        for (const name of Object.keys(HIGHLIGHT_COLORS)) dd.addOption(name, name);
+        dd.setValue(this.plugin.settings.highlightColor).onChange(async (v) => {
+          this.plugin.settings.highlightColor = v as keyof typeof HIGHLIGHT_COLORS;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Also save quote to highlights note")
+      .setDesc(
+        "Besides painting the PDF, collect each highlight as a linked quote in the companion note."
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.alsoSaveNote).onChange(async (v) => {
+          this.plugin.settings.alsoSaveNote = v;
+          await this.plugin.saveSettings();
+        })
       );
 
     new Setting(containerEl)
