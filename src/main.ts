@@ -275,7 +275,7 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     input.click();
   }
 
-  private async importOne(f: globalThis.File): Promise<TFile | null> {
+  private async importOne(f: File): Promise<TFile | null> {
     const folder = await this.ensureFolder(this.settings.pdfFolder);
     const data = await f.arrayBuffer();
 
@@ -574,7 +574,7 @@ export default class PdfHighlightNotesPlugin extends Plugin {
               })
           );
         }
-        menu.showAtMouseEvent(evt as unknown as MouseEvent);
+        menu.showAtMouseEvent(evt);
       });
     };
 
@@ -614,13 +614,15 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       const relevant = mutations.some((m) =>
         [...Array.from(m.addedNodes), ...Array.from(m.removedNodes)].some(
           (n) =>
-            n instanceof HTMLElement &&
-            !n.classList.contains("pdf-highlight-notes-overlay")
+            n.instanceOf(HTMLElement) &&
+            !(n as HTMLElement).classList.contains(
+              "pdf-highlight-notes-overlay"
+            )
         )
       );
       if (!relevant || scheduled) return;
       scheduled = true;
-      activeWindow.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
         scheduled = false;
         this.renderOverlaysForView(view);
       });
@@ -917,8 +919,12 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       return [x1, yTop, x2, yTop, x1, yBot, x2, yBot];
     });
 
-    const xs = quads.flatMap((q) => [q[0], q[2]]);
-    const ys = quads.flatMap((q) => [q[1], q[5]]);
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const q of quads) {
+      xs.push(q[0], q[2]);
+      ys.push(q[1], q[5]);
+    }
     const rect = [
       Math.min(...xs),
       Math.min(...ys),
@@ -973,7 +979,7 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       Type: "Annot",
       Subtype: style === "underline" ? "Underline" : "Highlight",
       Rect: rect,
-      QuadPoints: quads.flat(),
+      QuadPoints: ([] as number[]).concat(...quads),
       C: [cr, cg, cb],
       F: 4, // print flag
       Contents: PDFString.of(quote.slice(0, 500)),

@@ -76,7 +76,7 @@
   opacity: 0.55;
 }
 
-.pdf-highlight-notes-overlay-underline {
-  background-color: transparent !important;
+.pdf-highlight-notes-overlay.pdf-highlight-notes-overlay-underline {
+  background-color: transparent;
   border-bottom: 2px solid;
 }
