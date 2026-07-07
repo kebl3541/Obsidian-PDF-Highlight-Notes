@@ -28,6 +28,34 @@ interface PdfHighlightSettings {
   highlightColor: keyof typeof HIGHLIGHT_COLORS;
   // Underline color (independent from the marker fill).
   underlineColor: keyof typeof UNDERLINE_COLORS;
+  // "ink" writes permanent annotations into the PDF file (visible anywhere,
+  // reloads the viewer). "overlay" draws on screen only — no file change and
+  // no reload, but marks exist only inside Obsidian with this plugin enabled.
+  markerMode: "ink" | "overlay";
+}
+
+// An overlay mark: rectangles as fractions (0..1) of the rendered page, so
+// they reposition correctly at any zoom level.
+interface OverlayRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface OverlayMark {
+  id: string;
+  page: number;
+  style: MarkerStyle;
+  color: string;
+  rects: OverlayRect[];
+  quote: string;
+}
+
+// Shape of data.json: settings plus overlay marks keyed by file path.
+interface PersistedData {
+  settings: PdfHighlightSettings;
+  overlays: Record<string, OverlayMark[]>;
 }
 
 // RGB in PDF color space (0..1), tuned to look like real marker ink.
@@ -57,6 +85,7 @@ const DEFAULT_SETTINGS: PdfHighlightSettings = {
   openNoteAfterHighlight: false,
   highlightColor: "yellow",
   underlineColor: "black",
+  markerMode: "ink",
 };
 
 // Everything both actions need to know about the current PDF selection.
@@ -89,6 +118,13 @@ export default class PdfHighlightNotesPlugin extends Plugin {
 
   // One floating button toolbar per window (main window + popouts).
   private selectionButtons = new Map<Document, HTMLDivElement>();
+
+  // Overlay marks per file path (persisted in data.json).
+  private overlays: Record<string, OverlayMark[]> = {};
+
+  // One DOM observer per PDF view container, re-drawing overlays whenever
+  // pdf.js re-renders pages (scroll, zoom, reload).
+  private overlayObservers = new Map<HTMLElement, MutationObserver>();
 
   async onload() {
     await this.loadSettings();
@@ -144,20 +180,67 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     );
 
     this.addSettingTab(new PdfHighlightSettingTab(this));
+
+    // Overlay marks: redraw when layouts/files change, and keep the stored
+    // marks attached to files across renames and deletes.
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => this.renderAllOverlays())
+    );
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => this.renderAllOverlays())
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", (f, oldPath) => {
+        if (this.overlays[oldPath]) {
+          this.overlays[f.path] = this.overlays[oldPath];
+          delete this.overlays[oldPath];
+          void this.saveSettings();
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (f) => {
+        if (this.overlays[f.path]) {
+          delete this.overlays[f.path];
+          void this.saveSettings();
+        }
+      })
+    );
+    this.app.workspace.onLayoutReady(() => this.renderAllOverlays());
   }
 
   onunload() {
     for (const btn of this.selectionButtons.values()) btn.remove();
     this.selectionButtons.clear();
+    for (const obs of this.overlayObservers.values()) obs.disconnect();
+    this.overlayObservers.clear();
+    for (const leaf of this.app.workspace.getLeavesOfType("pdf")) {
+      (leaf.view as PdfViewLike).containerEl
+        .querySelectorAll(".pdf-highlight-notes-overlay")
+        .forEach((el) => el.remove());
+    }
   }
 
   async loadSettings() {
-    const saved = (await this.loadData()) as Partial<PdfHighlightSettings> | null;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+    const raw = (await this.loadData()) as Record<string, unknown> | null;
+    if (raw && typeof raw === "object" && "settings" in raw) {
+      const data = raw as unknown as PersistedData;
+      this.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings);
+      this.overlays = data.overlays ?? {};
+    } else {
+      // Older data.json stored the settings object directly.
+      this.settings = Object.assign(
+        {},
+        DEFAULT_SETTINGS,
+        raw as Partial<PdfHighlightSettings> | null
+      );
+      this.overlays = {};
+    }
   }
 
   async saveSettings() {
-    await this.saveData(this.settings);
+    const data: PersistedData = { settings: this.settings, overlays: this.overlays };
+    await this.saveData(data);
   }
 
   // ---- Import -------------------------------------------------------------
@@ -405,8 +488,8 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     return { view, file, range, quote, page, pageEl, textLayer };
   }
 
-  // Action 1: paint permanent marker ink (or an underline) into the PDF file.
-  // No note involved.
+  // Action 1: mark the selection — either permanent ink written into the PDF
+  // file, or a screen-only overlay, depending on the marker mode setting.
   private async highlightSelection(style: MarkerStyle) {
     const ctx = this.getSelectionContext();
     if (!ctx) return;
@@ -417,6 +500,14 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     const lineRects = this.mergedLineRects(ctx.range, pageBox);
     if (lineRects.length === 0) {
       new Notice("Could not measure the selection on the page.");
+      return;
+    }
+
+    if (this.settings.markerMode === "overlay") {
+      this.paintOverlay(ctx, style, pageBox, lineRects);
+      new Notice(
+        `${style === "underline" ? "Underlined" : "Highlighted"} on p. ${ctx.page} (overlay)`
+      );
       return;
     }
 
@@ -440,6 +531,157 @@ export default class PdfHighlightNotesPlugin extends Plugin {
     this.refreshPdfView(ctx.view, ctx.page);
   }
 
+  // ---- Overlay marks (screen-only, no file modification) -------------------
+
+  private paintOverlay(
+    ctx: SelectionContext,
+    style: MarkerStyle,
+    pageBox: DOMRect,
+    lineRects: DOMRect[]
+  ) {
+    const rects: OverlayRect[] = lineRects.map((r) => ({
+      x: (r.left - pageBox.left) / pageBox.width,
+      y: (r.top - pageBox.top) / pageBox.height,
+      w: r.width / pageBox.width,
+      h: r.height / pageBox.height,
+    }));
+    const mark: OverlayMark = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      page: ctx.page,
+      style,
+      color:
+        style === "underline"
+          ? this.settings.underlineColor
+          : this.settings.highlightColor,
+      rects,
+      quote: ctx.quote.slice(0, 300),
+    };
+    (this.overlays[ctx.file.path] ??= []).push(mark);
+    void this.saveSettings();
+    this.renderOverlaysForView(ctx.view);
+  }
+
+  private renderAllOverlays() {
+    for (const leaf of this.app.workspace.getLeavesOfType("pdf")) {
+      const view = leaf.view as PdfViewLike;
+      this.observeView(view);
+      this.renderOverlaysForView(view);
+    }
+  }
+
+  // Redraw overlays when pdf.js re-renders pages (zoom, scroll, reload).
+  private observeView(view: PdfViewLike) {
+    const container = view.containerEl;
+    if (this.overlayObservers.has(container)) return;
+    let scheduled = false;
+    const observer = new MutationObserver((mutations) => {
+      // Ignore mutations caused by our own overlay elements.
+      const relevant = mutations.some((m) =>
+        [...Array.from(m.addedNodes), ...Array.from(m.removedNodes)].some(
+          (n) =>
+            n instanceof HTMLElement &&
+            !n.classList.contains("pdf-highlight-notes-overlay")
+        )
+      );
+      if (!relevant || scheduled) return;
+      scheduled = true;
+      activeWindow.requestAnimationFrame(() => {
+        scheduled = false;
+        this.renderOverlaysForView(view);
+      });
+    });
+    observer.observe(container, { childList: true, subtree: true });
+    this.overlayObservers.set(container, observer);
+  }
+
+  private overlayColorCss(mark: OverlayMark): string {
+    const palette: Record<string, readonly number[]> =
+      mark.style === "underline" ? UNDERLINE_COLORS : HIGHLIGHT_COLORS;
+    const rgb = palette[mark.color] ?? HIGHLIGHT_COLORS.yellow;
+    return `rgb(${Math.round(rgb[0] * 255)}, ${Math.round(rgb[1] * 255)}, ${Math.round(rgb[2] * 255)})`;
+  }
+
+  private renderOverlaysForView(view: PdfViewLike) {
+    const file = view.file;
+    if (!file) return;
+    const marks = this.overlays[file.path] ?? [];
+
+    const pages = view.containerEl.querySelectorAll<HTMLElement>(
+      ".page[data-page-number]"
+    );
+    pages.forEach((pageEl) => {
+      pageEl
+        .querySelectorAll(".pdf-highlight-notes-overlay")
+        .forEach((el) => el.remove());
+
+      const num = parseInt(pageEl.getAttribute("data-page-number") ?? "", 10);
+      const pageMarks = marks.filter((m) => m.page === num);
+      if (pageMarks.length === 0) return;
+
+      // Position marks relative to the rendered canvas box, in pixels,
+      // recomputed on every render pass (so zoom changes stay correct).
+      const canvas = pageEl.querySelector("canvas");
+      if (!canvas) return;
+      const pageRect = pageEl.getBoundingClientRect();
+      const box = canvas.getBoundingClientRect();
+      const offX = box.left - pageRect.left;
+      const offY = box.top - pageRect.top;
+
+      for (const mark of pageMarks) {
+        const color = this.overlayColorCss(mark);
+        for (const r of mark.rects) {
+          const div = pageEl.createDiv({
+            cls: `pdf-highlight-notes-overlay pdf-highlight-notes-overlay-${mark.style}`,
+          });
+          div.style.left = `${offX + r.x * box.width}px`;
+          div.style.top = `${offY + r.y * box.height}px`;
+          div.style.width = `${r.w * box.width}px`;
+          div.style.height = `${r.h * box.height}px`;
+          if (mark.style === "underline") {
+            div.style.borderBottomColor = color;
+          } else {
+            div.style.backgroundColor = color;
+          }
+        }
+      }
+    });
+  }
+
+  // Remove overlay marks intersecting the selection. Returns how many were
+  // removed.
+  private eraseOverlaysUnderSelection(
+    ctx: SelectionContext,
+    pageBox: DOMRect,
+    lineRects: DOMRect[]
+  ): number {
+    const marks = this.overlays[ctx.file.path];
+    if (!marks || marks.length === 0) return 0;
+
+    const selBoxes = lineRects.map((r) => ({
+      x1: (r.left - pageBox.left) / pageBox.width,
+      x2: (r.right - pageBox.left) / pageBox.width,
+      y1: (r.top - pageBox.top) / pageBox.height,
+      y2: (r.bottom - pageBox.top) / pageBox.height,
+    }));
+
+    const survives = (m: OverlayMark) =>
+      m.page !== ctx.page ||
+      !m.rects.some((r) =>
+        selBoxes.some(
+          (b) => r.x < b.x2 && r.x + r.w > b.x1 && r.y < b.y2 && r.y + r.h > b.y1
+        )
+      );
+
+    const kept = marks.filter(survives);
+    const removed = marks.length - kept.length;
+    if (removed > 0) {
+      this.overlays[ctx.file.path] = kept;
+      void this.saveSettings();
+      this.renderOverlaysForView(ctx.view);
+    }
+    return removed;
+  }
+
   // Eraser: remove any highlight/underline annotations that overlap the
   // current selection.
   private async eraseUnderSelection() {
@@ -454,6 +696,13 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       new Notice("Could not measure the selection on the page.");
       return;
     }
+
+    // Overlay marks first — erasing them needs no file access.
+    const overlayRemoved = this.eraseOverlaysUnderSelection(
+      ctx,
+      pageBox,
+      lineRects
+    );
 
     const bytes = await this.app.vault.readBinary(ctx.file);
     const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
@@ -472,7 +721,11 @@ export default class PdfHighlightNotesPlugin extends Plugin {
 
     const annots = pdfPage.node.lookupMaybe(PDFName.of("Annots"), PDFArray);
     if (!annots) {
-      new Notice("No markers on this page.");
+      new Notice(
+        overlayRemoved > 0
+          ? `Erased ${overlayRemoved} marker${overlayRemoved === 1 ? "" : "s"}`
+          : "No marker found under the selection."
+      );
       return;
     }
 
@@ -506,18 +759,22 @@ export default class PdfHighlightNotesPlugin extends Plugin {
       }
     }
 
-    if (removed === 0) {
+    const total = removed + overlayRemoved;
+    if (total === 0) {
       new Notice("No marker found under the selection.");
       return;
     }
 
-    const out = await doc.save();
-    const buf = new ArrayBuffer(out.byteLength);
-    new Uint8Array(buf).set(out);
-    await this.app.vault.modifyBinary(ctx.file, buf);
+    // Only rewrite the file when ink annotations were actually removed.
+    if (removed > 0) {
+      const out = await doc.save();
+      const buf = new ArrayBuffer(out.byteLength);
+      new Uint8Array(buf).set(out);
+      await this.app.vault.modifyBinary(ctx.file, buf);
+      this.refreshPdfView(ctx.view, ctx.page);
+    }
 
-    new Notice(`Erased ${removed} marker${removed === 1 ? "" : "s"}`);
-    this.refreshPdfView(ctx.view, ctx.page);
+    new Notice(`Erased ${total} marker${total === 1 ? "" : "s"}`);
   }
 
   // Action 2: save the selection as a linked quote in the highlights note.
@@ -827,6 +1084,22 @@ class PdfHighlightSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.highlightsFolder)
           .onChange(async (v) => {
             this.plugin.settings.highlightsFolder = v.trim() || "PDF Highlights";
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Marker mode")
+      .setDesc(
+        "Ink: written permanently into the PDF file, visible in any reader; the viewer reloads (brief flash) on each mark. Overlay: drawn on screen only — no file change and no flash, but marks exist only inside Obsidian with this plugin enabled."
+      )
+      .addDropdown((dd) =>
+        dd
+          .addOption("ink", "Ink (permanent, in the file)")
+          .addOption("overlay", "Overlay (Obsidian-only, no flash)")
+          .setValue(this.plugin.settings.markerMode)
+          .onChange(async (v) => {
+            this.plugin.settings.markerMode = v as "ink" | "overlay";
             await this.plugin.saveSettings();
           })
       );

@@ -48,3 +48,20 @@
 .pdf-highlight-notes-swatch:hover {
   transform: scale(1.15);
 }
+
+/* Overlay marks drawn over PDF pages (screen-only marker mode). */
+.pdf-highlight-notes-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.pdf-highlight-notes-overlay-highlight {
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+}
+
+.pdf-highlight-notes-overlay-underline {
+  background-color: transparent !important;
+  border-bottom: 2px solid;
+}
