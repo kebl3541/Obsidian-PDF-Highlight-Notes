@@ -1,7 +1,7 @@
 # PDF Highlight Notes
 
 [![Downloads](https://img.shields.io/github/downloads/kebl3541/Obsidian-PDF-Highlight-Notes/total?style=flat&logo=github&label=Downloads&color=success&cacheSeconds=3600)](https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes/releases)
-[![GitHub stars](https://img.shields.io/github/stars/kebl3541/Obsidian-PDF-Highlight-Notes?style=flat&logo=github&label=Stars&cacheSeconds=3600)](https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/kebl3541/Obsidian-PDF-Highlight-Notes?style=flat&logo=github&label=Stars&cacheSeconds=7200)](https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes/stargazers)
 [![Latest release](https://img.shields.io/github/v/release/kebl3541/Obsidian-PDF-Highlight-Notes?style=flat&label=Release&cacheSeconds=3600)](https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes/releases/latest)
 
 <p align="center">If this plugin adds value for you and you would like to help support
