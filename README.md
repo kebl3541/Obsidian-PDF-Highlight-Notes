@@ -4,6 +4,10 @@
 [![GitHub stars](https://img.shields.io/github/stars/kebl3541/Obsidian-PDF-Highlight-Notes?style=flat&logo=github&label=Stars&cacheSeconds=7200)](https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes/stargazers)
 [![Latest release](https://img.shields.io/github/v/release/kebl3541/Obsidian-PDF-Highlight-Notes?style=flat&label=Release&cacheSeconds=3600)](https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes/releases/latest)
 
+
+
+An Obsidian plugin to **import, read, and highlight PDFs** inside your vault.
+
 <p align="center">If this plugin adds value for you and you would like to help support
 continued development, please use the buttons below:</p>
 
@@ -17,9 +21,6 @@ continued development, please use the buttons below:</p>
 
 <p align="center">If you like this plugin or find it useful, please consider giving it a <a href="https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes">star</a> <a href="https://github.com/kebl3541/Obsidian-PDF-Highlight-Notes"><img src="https://img.shields.io/github/stars/kebl3541/Obsidian-PDF-Highlight-Notes?style=social" alt="GitHub Repo stars"></a> on GitHub!</p>
 
-
-
-An Obsidian plugin to **import, read, and highlight PDFs** inside your vault.
 
 PDFs open in Obsidian's built-in viewer. Select a passage and a small floating
 toolbar appears with two **independent** actions:
